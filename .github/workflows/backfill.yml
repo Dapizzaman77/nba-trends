@@ -1,0 +1,33 @@
+name: Backfill last season (run once)
+
+on:
+  workflow_dispatch:
+    inputs:
+      from_date:
+        description: "Start date (YYYY-MM-DD)"
+        default: "2025-10-21"
+      to_date:
+        description: "End date (YYYY-MM-DD)"
+        default: "2026-04-30"
+
+permissions:
+  contents: write
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch last season's finished games
+        run: python update_data.py --from "${{ inputs.from_date }}" --to "${{ inputs.to_date }}" --sleep 0.3
+      - name: Commit data
+        if: always()
+        run: |
+          git config user.name "nba-trends-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/gamelog.js
+          git diff --cached --quiet || (git commit -m "Backfill last season" && git push)
