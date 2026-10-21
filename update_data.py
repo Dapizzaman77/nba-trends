@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-"""Append finished NBA games to data/gamelog.js.
+"""Append finished NBA games to data/gamelog.js (player rows AND team rows).
 
 Source: ESPN's public (unofficial) JSON endpoints. No API key needed.
 
 Daily use (what the scheduled job runs):
     python update_data.py --days 3
 
-One-time backfill of last season, so 5/10/20-game trends work right away:
-    python update_data.py --from 2025-10-21 --to 2026-04-30 --sleep 0.3
+Backfill a date range (also fills in team rows for games whose player rows are already saved):
+    python update_data.py --from 2025-10-21 --to 2026-10-21 --sleep 0.3
 
-Rows are de-duplicated on (date, team, player), so re-running is safe.
+Rows are de-duplicated on (date, team, player) and (date, team), so re-running is safe.
 Only regular-season games are kept unless you pass --types 2,3 (adds playoffs).
-Games from before SEASON_START are pruned to each player's last --keep-prior games,
+Games from before SEASON_START are pruned to the last --keep-prior games per player / per team,
 because the 20-game trends never need more than that.
+
+The data file holds: "rows" (one per player per game) and "teams" (one per team per game).
 """
 import argparse
 import json
@@ -31,6 +33,8 @@ SEASON_START = "2026-09-01"  # games before this date count as "last season"
 
 # ESPN abbreviations that differ from the ones used on the site
 TEAM_FIX = {"GS": "GSW", "NY": "NYK", "NO": "NOP", "SA": "SAS", "UTAH": "UTA", "WSH": "WAS", "PHO": "PHX"}
+
+TEAM_SUM_KEYS = ["reb", "ast", "stl", "blk", "tov", "fgm", "fga", "tpm", "tpa", "ftm", "fta"]
 
 
 def norm_team(abbr):
@@ -53,31 +57,35 @@ def get_json(url, tries=3):
 def load():
     text = DATA.read_text(encoding="utf-8")
     body = text[text.index("=") + 1:].strip().rstrip(";")
-    return json.loads(body)
+    data = json.loads(body)
+    data.setdefault("teams", [])
+    return data
 
 
 def save(data):
-    lines = ",\n".join("  " + json.dumps(r, separators=(",", ":")) for r in data["rows"])
-    out = 'window.NBA_LOG = {"updated":%s,"rows":[\n%s\n]};\n' % (json.dumps(data["updated"]), lines)
+    def block(rows):
+        return ",\n".join("  " + json.dumps(r, separators=(",", ":")) for r in rows)
+    out = 'window.NBA_LOG = {"updated":%s,"rows":[\n%s\n],"teams":[\n%s\n]};\n' % (
+        json.dumps(data["updated"]), block(data["rows"]), block(data.get("teams", [])))
     DATA.write_text(out, encoding="utf-8")
 
 
-def prune_prior(rows, keep):
-    """Keep every current-season row; for older rows keep only each player's last `keep` games."""
+def prune_prior(rows, keep, key="p"):
+    """Keep every current-season row; for older rows keep only the last `keep` per player (or team)."""
     if keep <= 0:
         return rows
     prior = [r for r in rows if r["d"] < SEASON_START]
     current = [r for r in rows if r["d"] >= SEASON_START]
-    by_player = {}
+    grouped = {}
     for r in prior:  # rows are already date-sorted
-        by_player.setdefault(r["p"], []).append(r)
-    kept = [r for lst in by_player.values() for r in lst[-keep:]]
+        grouped.setdefault(r[key], []).append(r)
+    kept = [r for lst in grouped.values() for r in lst[-keep:]]
     kept.sort(key=lambda r: r["d"])
     return kept + current
 
 
 def parse_boxscore(summary, date_str, scores):
-    """scores: {team_abbr: (points, 'home'|'away')} for this game. Returns list of rows."""
+    """scores: {team_abbr: (points, 'home'|'away')} for this game. Returns list of player rows."""
     rows = []
     for entry in summary.get("boxscore", {}).get("players", []):
         team = norm_team(entry["team"]["abbreviation"])
@@ -123,6 +131,23 @@ def parse_boxscore(summary, date_str, scores):
     return rows
 
 
+def team_rows(player_rows, date_str, scores):
+    """One row per team: points from the final score, everything else summed over that team's players."""
+    out = []
+    for team, (pf, side) in scores.items():
+        mine = [r for r in player_rows if r["t"] == team]
+        if not mine:  # box score missing for this team: skip rather than store partial totals
+            continue
+        opp_team = next(t for t in scores if t != team)
+        pa = scores[opp_team][0]
+        row = {"d": date_str, "t": team, "o": opp_team, "h": 1 if side == "home" else 0,
+               "r": f"{'W' if pf > pa else 'L'} {pf}-{pa}", "pf": pf, "pa": pa}
+        for k in TEAM_SUM_KEYS:
+            row[k] = sum(r[k] for r in mine)
+        out.append(row)
+    return out
+
+
 def day_range(args):
     if args.date_from:
         start = date.fromisoformat(args.date_from)
@@ -143,13 +168,14 @@ def main():
     ap.add_argument("--to", dest="date_to", help="backfill end date YYYY-MM-DD (default today)")
     ap.add_argument("--types", default="2", help="ESPN season types to keep: 2=regular season, 3=playoffs")
     ap.add_argument("--sleep", type=float, default=0.0, help="pause between requests (be polite on backfills)")
-    ap.add_argument("--keep-prior", type=int, default=25, help="games kept per player from before the season start")
+    ap.add_argument("--keep-prior", type=int, default=25, help="games kept per player/team from before the season start")
     args = ap.parse_args()
     allowed = {int(t) for t in args.types.split(",")}
 
     data = load()
     seen = {(r["d"], r["t"], r["p"]) for r in data["rows"]}
-    added, failures = 0, 0
+    tseen = {(r["d"], r["t"]) for r in data["teams"]}
+    added, added_t, failures = 0, 0, 0
 
     for day in day_range(args):
         ds = f"{day:%Y-%m-%d}"
@@ -159,7 +185,7 @@ def main():
             print(f"{ds}: scoreboard failed ({e})")
             failures += 1
             continue
-        day_added, games = 0, 0
+        day_added, day_t, games = 0, 0, 0
         for ev in board.get("events", []):
             if not ev.get("status", {}).get("type", {}).get("completed"):
                 continue
@@ -173,32 +199,41 @@ def main():
                 if args.sleep:
                     time.sleep(args.sleep)
                 summary = get_json(f"{BASE}/summary?event={ev['id']}")
-                new_rows = [r for r in parse_boxscore(summary, ds, scores)
-                            if (r["d"], r["t"], r["p"]) not in seen]
+                all_rows = parse_boxscore(summary, ds, scores)
+                new_rows = [r for r in all_rows if (r["d"], r["t"], r["p"]) not in seen]
+                new_teams = [r for r in team_rows(all_rows, ds, scores) if (r["d"], r["t"]) not in tseen]
             except Exception as e:
                 print(f"{ds} event {ev.get('id')}: failed ({e})")
                 failures += 1
                 continue
             for r in new_rows:
                 seen.add((r["d"], r["t"], r["p"]))
+            for r in new_teams:
+                tseen.add((r["d"], r["t"]))
             data["rows"].extend(new_rows)
+            data["teams"].extend(new_teams)
             day_added += len(new_rows)
+            day_t += len(new_teams)
             games += 1
         added += day_added
+        added_t += day_t
         if games:
-            print(f"{ds}: {games} games, +{day_added} rows")
+            print(f"{ds}: {games} games, +{day_added} player rows, +{day_t} team rows")
         if args.sleep:
             time.sleep(args.sleep)
 
-    if added:
+    if added or added_t:
         data["rows"].sort(key=lambda r: r["d"])  # stable: keeps order within a day
-        data["rows"] = prune_prior(data["rows"], args.keep_prior)
+        data["teams"].sort(key=lambda r: r["d"])
+        data["rows"] = prune_prior(data["rows"], args.keep_prior, "p")
+        data["teams"] = prune_prior(data["teams"], args.keep_prior, "t")
         data["updated"] = datetime.now(ET).strftime("%Y-%m-%d")
         save(data)
-    print(f"Done. {added} new player-games added. {failures} failures. File now has {len(data['rows'])} rows.")
+    print(f"Done. {added} new player-games and {added_t} new team-games added. {failures} failures. "
+          f"File now has {len(data['rows'])} player rows and {len(data['teams'])} team rows.")
     # Partial failures are logged and skipped (re-running fills the gaps). Only fail the job
     # when nothing worked, so the workflow still commits whatever was saved.
-    return 1 if (failures and not added) else 0
+    return 1 if (failures and not (added or added_t)) else 0
 
 
 if __name__ == "__main__":
