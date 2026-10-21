@@ -8,16 +8,17 @@
   :root {
     --bg: #f6f7f9; --card: #ffffff; --ink: #14181f; --muted: #5d6675; --line: #e1e5ec;
     --accent: #1f3864; --pos: #0b7a3b; --neg: #b3261e; --posbg: #dff3e6; --negbg: #fbe3e1;
-    --head: #1f3864; --headink: #ffffff; --hover: #f0f3f8;
+    --head: #1f3864; --headink: #ffffff; --hover: #f0f3f8; --last: #8a93a3;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #0f1218; --card: #171c25; --ink: #e8ebf1; --muted: #98a2b3; --line: #2a3140;
       --accent: #7aa2ff; --pos: #5fd08a; --neg: #ff8a80; --posbg: #12331f; --negbg: #3a1815;
-      --head: #243252; --headink: #f3f6fb; --hover: #1d2430;
+      --head: #243252; --headink: #f3f6fb; --hover: #1d2430; --last: #7d8798;
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--ink);
          font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
   .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
@@ -27,7 +28,7 @@
   .controls label { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; }
   input, select { font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line);
                   border-radius: 8px; padding: 7px 10px; }
-  input[type=search] { min-width: 200px; }
+  input[type=search] { min-width: 180px; }
   input[type=number] { width: 64px; }
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--card); }
   .seg button { font: inherit; color: var(--muted); background: none; border: 0; padding: 7px 14px; cursor: pointer; }
@@ -37,7 +38,7 @@
   .note { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent);
           border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; color: var(--muted); }
   .tablebox { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: auto; max-height: 76vh; }
-  table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 860px; }
+  table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 760px; }
   th, td { padding: 7px 9px; text-align: center; white-space: nowrap; border-bottom: 1px solid var(--line); }
   th { position: sticky; top: 0; z-index: 2; background: var(--head); color: var(--headink); font-weight: 600;
        font-size: 12px; cursor: pointer; user-select: none; }
@@ -57,6 +58,7 @@
   .detail table { min-width: 0; width: auto; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
   .detail th { position: static; background: var(--head); cursor: default; }
   .detail th:first-child, .detail td:first-child { position: static; text-align: center; }
+  .detail tr.lastseason td { color: var(--last); }
   .detail h3 { margin: 0 0 8px; font-size: 13px; color: var(--muted); font-weight: 600; }
   .foot { color: var(--muted); font-size: 12px; margin-top: 14px; }
   .empty { padding: 28px; color: var(--muted); text-align: center; }
@@ -70,21 +72,24 @@
   <div class="controls">
     <input type="search" id="q" placeholder="Search player" aria-label="Search player">
     <label>Team <select id="team"><option value="">All</option></select></label>
-    <label>Min GP <select id="mingp"><option>1</option><option>3</option><option>5</option><option>10</option></select></label>
+    <label>Min GP this season <select id="mingp"><option>0</option><option selected>1</option><option>3</option><option>5</option><option>10</option></select></label>
+    <div class="seg" role="group" aria-label="View" id="view">
+      <button data-v="all" aria-pressed="true">All stats</button>
+      <button data-v="stat" aria-pressed="false">By stat</button>
+    </div>
     <div class="seg" role="group" aria-label="Averages window" id="win">
       <button data-w="season" aria-pressed="true">Season</button>
-      <button data-w="l10" aria-pressed="false">Last 10</button>
       <button data-w="l5" aria-pressed="false">Last 5</button>
+      <button data-w="l10" aria-pressed="false">Last 10</button>
+      <button data-w="l20" aria-pressed="false">Last 20</button>
     </div>
+    <label id="statwrap" hidden>Stat <select id="stat"></select></label>
     <label>Hot/Cold at &plusmn; <input type="number" id="thr" min="0" step="0.5" aria-label="Hot or cold threshold in PRA"> PRA</label>
   </div>
 
   <div id="banner"></div>
   <div class="tablebox"><table id="tbl"><thead></thead><tbody></tbody></table></div>
-  <p class="foot">
-    PRA = points + rebounds + assists. Trend columns compare the last-5 average with the season (or last-10) average.
-    FG% is made / attempted over the window. Click a player to see their game log. Games with fewer than 5 or 10 played use what exists.
-  </p>
+  <p class="foot" id="foot"></p>
 </div>
 
 <script src="data/gamelog.js"></script>
@@ -92,13 +97,13 @@
 (function () {
   const $ = (s) => document.querySelector(s);
   const LOG = window.NBA_LOG;
-  if (!LOG || !LOG.rows) {
-    $('#meta').textContent = 'Data file not found (data/gamelog.js).';
-    return;
-  }
+  if (!LOG || !LOG.rows) { $('#meta').textContent = 'Data file not found (data/gamelog.js).'; return; }
 
+  const SEASON_START = '2026-09-01'; // games before this date are "last season" (keep in sync with update_data.py)
   const STATS = [['pts','PTS'],['reb','REB'],['ast','AST'],['tpm','3PM'],['stl','STL'],['blk','BLK'],['tov','TOV'],['pra','PRA']];
-  const state = { win: 'season', sort: 'pts', dir: -1, q: '', team: '', minGp: 1, thr: 3, open: new Set() };
+  const STAT_OPTS = STATS.concat([['fg','FG%']]);
+  const STAT_LABEL = Object.fromEntries(STAT_OPTS);
+  const state = { win: 'season', view: 'all', stat: 'pts', sort: 'pts', dir: -1, q: '', team: '', minGp: 1, thr: 3, open: new Set() };
   try { const t = parseFloat(localStorage.getItem('nba_thr')); if (!isNaN(t)) state.thr = t; } catch (e) {}
 
   const sum = (rows, k) => rows.reduce((s, r) => s + r[k], 0);
@@ -118,25 +123,33 @@
   });
   const players = [...by].map(([name, rows]) => {
     rows.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0));
-    const p = { name, team: rows[rows.length - 1].t, gp: rows.length, rows,
-                season: agg(rows), l10: agg(rows.slice(-10)), l5: agg(rows.slice(-5)) };
-    p.d_pts = p.l5.pts - p.season.pts;
-    p.d_pra = p.l5.pra - p.season.pra;
-    p.d_pra10 = p.l5.pra - p.l10.pra;
+    const cur = rows.filter((r) => r.d >= SEASON_START);
+    const p = { name, team: rows[rows.length - 1].t, gp: cur.length, total: rows.length, rows,
+                season: agg(cur), l5: agg(rows.slice(-5)), l10: agg(rows.slice(-10)), l20: agg(rows.slice(-20)) };
+    p.d_pts = p.l5.pts - p.l20.pts;
+    p.d_pra = p.l5.pra - p.l20.pra;
+    p.d_pra10 = p.l10.pra - p.l20.pra;
     return p;
   });
-  const flagOf = (p) => p.gp < 3 ? 'n/a' : p.d_pra >= state.thr ? 'HOT' : p.d_pra <= -state.thr ? 'COLD' : 'STEADY';
+  const hasHistory = LOG.rows.some((r) => r.d < SEASON_START);
+  const flagOf = (p) => p.total < 10 ? 'n/a' : p.d_pra >= state.thr ? 'HOT' : p.d_pra <= -state.thr ? 'COLD' : 'STEADY';
   const FLAG_ORDER = { HOT: 3, STEADY: 2, COLD: 1, 'n/a': 0 };
 
-  const COLS = [
+  const ALL_COLS = [
     { k: 'name', label: 'Player' }, { k: 'team', label: 'Team' }, { k: 'gp', label: 'GP' },
-    ...STATS.map(([k, l]) => ({ k, label: l, stat: true })),
-    { k: 'fg', label: 'FG%', stat: true },
-    { k: 'd_pts', label: 'PTS L5 vs Szn', trend: true },
-    { k: 'd_pra', label: 'PRA L5 vs Szn', trend: true },
-    { k: 'd_pra10', label: 'PRA L5 vs L10', trend: true },
+    ...STATS.map(([k, l]) => ({ k, label: l })),
+    { k: 'fg', label: 'FG%' },
+    { k: 'd_pts', label: 'PTS L5 vs L20', trend: true },
+    { k: 'd_pra', label: 'PRA L5 vs L20', trend: true },
+    { k: 'd_pra10', label: 'PRA L10 vs L20', trend: true },
     { k: 'flag', label: 'Form', trend: true },
   ];
+  const STAT_COLS = [
+    { k: 'name', label: 'Player' }, { k: 'team', label: 'Team' }, { k: 'gp', label: 'GP' },
+    { k: 'v_season', label: 'Season' }, { k: 'v_l20', label: 'L20' }, { k: 'v_l10', label: 'L10' }, { k: 'v_l5', label: 'L5' },
+    { k: 'dl5', label: 'L5 vs L20', trend: true }, { k: 'dl10', label: 'L10 vs L20', trend: true },
+  ];
+  const cols = () => (state.view === 'all' ? ALL_COLS : STAT_COLS);
 
   function el(tag, props, kids) {
     const e = document.createElement(tag);
@@ -144,45 +157,59 @@
     (kids || []).forEach((c) => e.append(c));
     return e;
   }
-  const delta = (v) => {
-    const r = Math.round(v * 10) / 10;
-    return el('span', { class: r > 0 ? 'pos' : r < 0 ? 'neg' : 'zero', textContent: (r > 0 ? '+' : '') + r.toFixed(1) });
-  };
+  const fmt = (key, v) => (key === 'fg' ? (v * 100).toFixed(1) + '%' : v.toFixed(1));
+  function delta(v, key, inverse) {
+    const shown = key === 'fg' ? v * 100 : v;
+    const r = Math.round(shown * 10) / 10;
+    const good = inverse ? r < 0 : r > 0, bad = inverse ? r > 0 : r < 0;
+    return el('span', { class: good ? 'pos' : bad ? 'neg' : 'zero', textContent: (r > 0 ? '+' : '') + r.toFixed(1) + (key === 'fg' ? '%' : '') });
+  }
 
   function value(p, k) {
     if (k === 'name' || k === 'team') return p[k];
     if (k === 'gp') return p.gp;
-    if (k.startsWith('d_')) return p[k];
     if (k === 'flag') return FLAG_ORDER[flagOf(p)];
+    if (k.startsWith('d_')) return p[k];
+    if (k.startsWith('v_')) return p[k.slice(2)][state.stat];
+    if (k === 'dl5') return p.l5[state.stat] - p.l20[state.stat];
+    if (k === 'dl10') return p.l10[state.stat] - p.l20[state.stat];
     return p[state.win][k];
   }
 
   function cell(p, c) {
-    if (c.k === 'name') return el('td', { class: 'name', textContent: p.name });
-    if (c.k === 'team') return el('td', { class: 'team', textContent: p.team });
-    if (c.k === 'gp') return el('td', { textContent: p.gp });
-    if (c.k.startsWith('d_')) return el('td', {}, [delta(p[c.k])]);
-    if (c.k === 'flag') { const f = flagOf(p); return el('td', {}, [el('span', { class: 'chip ' + (f === 'n/a' ? 'na' : f), textContent: f })]); }
-    const v = p[state.win][c.k];
-    return el('td', { textContent: c.k === 'fg' ? (v * 100).toFixed(1) + '%' : v.toFixed(1) });
+    const k = c.k;
+    if (k === 'name') return el('td', { class: 'name', textContent: p.name });
+    if (k === 'team') return el('td', { class: 'team', textContent: p.team });
+    if (k === 'gp') return el('td', { textContent: p.gp });
+    if (k === 'flag') { const f = flagOf(p); return el('td', {}, [el('span', { class: 'chip ' + (f === 'n/a' ? 'na' : f), textContent: f })]); }
+    if (k.startsWith('d_')) return el('td', {}, [delta(p[k], 'pts', k === 'd_tov')]);
+    if (k === 'dl5' || k === 'dl10') return el('td', {}, [delta(value(p, k), state.stat, state.stat === 'tov')]);
+    if (k.startsWith('v_')) {
+      const w = p[k.slice(2)];
+      return el('td', { textContent: w.n ? fmt(state.stat, w[state.stat]) : '–' });
+    }
+    const w = p[state.win];
+    return el('td', { textContent: w.n ? fmt(k, w[k]) : '–' });
   }
 
-  function detailRow(p) {
-    const recent = p.rows.slice(-10).reverse();
-    const head = ['Date','Opp','Result','PTS','REB','AST','3PM','STL','BLK','TOV','FG'];
+  function detailRow(p, ncols) {
+    const recent = p.rows.slice(-20).reverse();
+    const head = ['Date','Opp','Result','PTS','REB','AST','PRA','3PM','STL','BLK','TOV','FG'];
     const t = el('table', {}, [
       el('thead', {}, [el('tr', {}, head.map((h) => el('th', { textContent: h })))]),
-      el('tbody', {}, recent.map((r) => el('tr', {}, [
-        r.d, (r.h ? 'vs ' : '@ ') + r.o, r.r, r.pts, r.reb, r.ast, r.tpm, r.stl, r.blk, r.tov, r.fgm + '-' + r.fga,
+      el('tbody', {}, recent.map((r) => el('tr', { class: r.d < SEASON_START ? 'lastseason' : '' }, [
+        r.d, (r.h ? 'vs ' : '@ ') + r.o, r.r, r.pts, r.reb, r.ast, r.pra, r.tpm, r.stl, r.blk, r.tov, r.fgm + '-' + r.fga,
       ].map((v) => el('td', { textContent: String(v) }))))),
     ]);
-    const td = el('td', { colSpan: COLS.length }, [el('h3', { textContent: p.name + ' - recent games (newest first, up to 10)' }), t]);
+    const td = el('td', { colSpan: ncols }, [
+      el('h3', { textContent: p.name + ' - last ' + recent.length + ' games, newest first (grey rows are from last season)' }), t]);
     return el('tr', { class: 'detail' }, [td]);
   }
 
   function render() {
+    const C = cols();
     const q = state.q.toLowerCase();
-    let list = players.filter((p) => p.gp >= state.minGp && (!state.team || p.team === state.team) && (!q || p.name.toLowerCase().includes(q)));
+    const list = players.filter((p) => p.gp >= state.minGp && (!state.team || p.team === state.team) && (!q || p.name.toLowerCase().includes(q)));
     list.sort((a, b) => {
       const x = value(a, state.sort), y = value(b, state.sort);
       const c = typeof x === 'string' ? x.localeCompare(y) : x - y;
@@ -190,7 +217,7 @@
     });
 
     const thead = $('#tbl thead'); thead.replaceChildren();
-    thead.append(el('tr', {}, COLS.map((c) => {
+    thead.append(el('tr', {}, C.map((c) => {
       const th = el('th', { class: c.trend ? 'trend' : '', textContent: c.label });
       th.setAttribute('aria-sort', state.sort === c.k ? (state.dir > 0 ? 'ascending' : 'descending') : 'none');
       if (state.sort === c.k) th.append(el('span', { class: 'arrow', textContent: state.dir > 0 ? '▲' : '▼' }));
@@ -202,40 +229,54 @@
     })));
 
     const tb = $('#tbl tbody'); tb.replaceChildren();
-    if (!list.length) tb.append(el('tr', {}, [el('td', { colSpan: COLS.length, class: 'empty', textContent: 'No players match.' })]));
+    if (!list.length) tb.append(el('tr', {}, [el('td', { colSpan: C.length, class: 'empty', textContent: 'No players match.' })]));
     list.forEach((p) => {
-      const tr = el('tr', { class: 'player' }, COLS.map((c) => cell(p, c)));
+      const tr = el('tr', { class: 'player' }, C.map((c) => cell(p, c)));
       tr.onclick = () => { state.open.has(p.name) ? state.open.delete(p.name) : state.open.add(p.name); render(); };
       tb.append(tr);
-      if (state.open.has(p.name)) tb.append(detailRow(p));
+      if (state.open.has(p.name)) tb.append(detailRow(p, C.length));
     });
 
-    const anyTrend = players.some((p) => p.gp >= 3);
-    $('#banner').replaceChildren();
-    if (!anyTrend) $('#banner').append(el('div', { class: 'note', textContent:
-      'Early season: no player has 3 games yet, so Season, Last 10 and Last 5 are identical and Form shows n/a. Trends fill in as games are played.' }));
+    const banner = $('#banner'); banner.replaceChildren();
+    if (!hasHistory) banner.append(el('div', { class: 'note', textContent:
+      'No last-season games are loaded yet, so Last 5 / 10 / 20 only include this season. Run the "Backfill last season" action once (see README) to fill them in.' }));
+    else if (!players.some((p) => p.total >= 10)) banner.append(el('div', { class: 'note', textContent:
+      'Form flags need at least 10 games on record per player. They appear as more games are loaded.' }));
+
+    $('#foot').textContent = state.view === 'all'
+      ? 'Season = this season only. Last 5/10/20 = a player’s most recent games, including the end of last season early in the year. PRA = points + rebounds + assists. FG% is made / attempted over the window. Trend columns compare the recent window to the last-20 average. Click a player for their last 20 games.'
+      : 'Showing ' + STAT_LABEL[state.stat] + '. Season = this season only; L20/L10/L5 = most recent games, including last season early on. Deltas compare L5 and L10 to L20' + (state.stat === 'tov' ? ' (for turnovers, a drop is shown green).' : '.') + ' Click a player for their last 20 games.';
   }
 
   // controls
-  const teams = [...new Set(players.map((p) => p.team))].sort();
-  teams.forEach((t) => $('#team').append(el('option', { value: t, textContent: t })));
+  [...new Set(players.map((p) => p.team))].sort().forEach((t) => $('#team').append(el('option', { value: t, textContent: t })));
+  STAT_OPTS.forEach(([k, l]) => $('#stat').append(el('option', { value: k, textContent: l })));
   $('#q').oninput = (e) => { state.q = e.target.value; render(); };
   $('#team').onchange = (e) => { state.team = e.target.value; render(); };
   $('#mingp').onchange = (e) => { state.minGp = +e.target.value; render(); };
+  $('#stat').onchange = (e) => { state.stat = e.target.value; render(); };
   $('#thr').value = state.thr;
   $('#thr').oninput = (e) => {
     const v = parseFloat(e.target.value);
     if (!isNaN(v) && v >= 0) { state.thr = v; try { localStorage.setItem('nba_thr', String(v)); } catch (err) {} render(); }
   };
+  function pressed(group, btn) { document.querySelectorAll(group + ' button').forEach((x) => x.setAttribute('aria-pressed', String(x === btn))); }
   document.querySelectorAll('#win button').forEach((b) => {
+    b.onclick = () => { state.win = b.dataset.w; pressed('#win', b); render(); };
+  });
+  document.querySelectorAll('#view button').forEach((b) => {
     b.onclick = () => {
-      state.win = b.dataset.w;
-      document.querySelectorAll('#win button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      state.view = b.dataset.v; pressed('#view', b);
+      $('#win').hidden = state.view === 'stat';
+      $('#statwrap').hidden = state.view === 'all';
+      state.sort = state.view === 'all' ? 'pts' : 'v_l10'; state.dir = -1;
       render();
     };
   });
 
-  $('#meta').textContent = 'Data through ' + LOG.updated + ' · ' + players.length + ' players · ' + LOG.rows.length + ' player-games · updated daily';
+  const active = players.filter((p) => p.gp > 0).length;
+  $('#meta').textContent = 'Data through ' + LOG.updated + ' · ' + active + ' players this season · ' + LOG.rows.length +
+    ' player-games on record' + (hasHistory ? ' (includes last season’s final games)' : '') + ' · updated daily';
   render();
 })();
 </script>
