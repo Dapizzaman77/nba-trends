@@ -33,5 +33,11 @@ window.NBA_LOG = {"updated":"2026-10-20","rows":[
   {"d":"2026-10-20","p":"Tyrese Maxey","t":"PHI","o":"NYK","h":0,"r":"W 106-100","pts":28,"reb":4,"ast":5,"stl":3,"blk":3,"tov":2,"fgm":9,"fga":19,"tpm":2,"tpa":9,"ftm":8,"fta":9},
   {"d":"2026-10-20","p":"Joel Embiid","t":"PHI","o":"NYK","h":0,"r":"W 106-100","pts":13,"reb":11,"ast":6,"stl":2,"blk":3,"tov":4,"fgm":4,"fga":15,"tpm":2,"tpa":7,"ftm":3,"fta":4},
   {"d":"2026-10-20","p":"Kentavious Caldwell-Pope","t":"PHI","o":"NYK","h":0,"r":"W 106-100","pts":10,"reb":4,"ast":1,"stl":0,"blk":1,"tov":0,"fgm":3,"fga":8,"tpm":2,"tpa":6,"ftm":2,"fta":2},
-  {"d":"2026-10-20","p":"Adem Bona","t":"PHI","o":"NYK","h":0,"r":"W 106-100","pts":0,"reb":3,"ast":1,"stl":0,"blk":1,"tov":0,"fgm":0,"fga":0,"tpm":0,"tpa":0,"ftm":0,"fta":0}
+  {"d":"2026-10-20","p":"Adem Bona","t":"PHI","o":"NYK","h":0,"r":"W 106-100","pts":0,"reb":3,"ast":1,"stl":0,"blk":1,"tov":0,"fgm":0,"fga":0,"tpm":0,"tpa":0,"ftm":0,"fta":0},
+  {"d":"2026-10-20","p":"Paul George","t":"BOS","o":"DET","h":0,"r":"L 113-121","pts":38,"reb":5,"ast":3,"stl":5,"blk":0,"tov":3,"fgm":12,"fga":21,"tpm":7,"tpa":12,"ftm":7,"fta":8},
+  {"d":"2026-10-20","p":"Sam Hauser","t":"BOS","o":"DET","h":0,"r":"L 113-121","pts":11,"reb":4,"ast":1,"stl":0,"blk":0,"tov":0,"fgm":4,"fga":7,"tpm":3,"tpa":5,"ftm":0,"fta":0},
+  {"d":"2026-10-20","p":"Paul Reed","t":"DET","o":"BOS","h":1,"r":"W 121-113","pts":6,"reb":6,"ast":2,"stl":1,"blk":0,"tov":2,"fgm":2,"fga":3,"tpm":0,"tpa":0,"ftm":2,"fta":2},
+  {"d":"2026-10-20","p":"Jaylen Brown","t":"PHI","o":"NYK","h":0,"r":"W 106-100","pts":19,"reb":8,"ast":6,"stl":1,"blk":1,"tov":2,"fgm":7,"fga":14,"tpm":2,"tpa":4,"ftm":3,"fta":4},
+  {"d":"2026-10-20","p":"Jabari Walker","t":"PHI","o":"NYK","h":0,"r":"W 106-100","pts":0,"reb":0,"ast":1,"stl":0,"blk":0,"tov":0,"fgm":0,"fga":0,"tpm":0,"tpa":0,"ftm":0,"fta":0},
+  {"d":"2026-10-20","p":"Josh Hart","t":"NYK","o":"PHI","h":1,"r":"L 100-106","pts":14,"reb":7,"ast":3,"stl":1,"blk":1,"tov":2,"fgm":5,"fga":10,"tpm":2,"tpa":5,"ftm":2,"fta":3}
 ]};
