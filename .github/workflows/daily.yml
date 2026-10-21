@@ -1,0 +1,26 @@
+name: Daily NBA stats update
+
+on:
+  schedule:
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch finished games from the last 3 days
+        run: python update_data.py --days 3
+      - name: Commit new data
+        run: |
+          git config user.name "nba-trends-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/gamelog.js
+          git diff --cached --quiet || (git commit -m "Daily NBA stats update" && git push)
