@@ -139,15 +139,15 @@
     { k: 'name', label: 'Player' }, { k: 'team', label: 'Team' }, { k: 'gp', label: 'GP' },
     ...STATS.map(([k, l]) => ({ k, label: l })),
     { k: 'fg', label: 'FG%' },
-    { k: 'd_pts', label: 'PTS L5 vs L20', trend: true },
-    { k: 'd_pra', label: 'PRA L5 vs L20', trend: true },
-    { k: 'd_pra10', label: 'PRA L10 vs L20', trend: true },
+    { k: 'pra@l5', label: 'PRA L5', trend: true },
+    { k: 'pra@l10', label: 'PRA L10', trend: true },
+    { k: 'pra@l20', label: 'PRA L20', trend: true },
     { k: 'flag', label: 'Form', trend: true },
   ];
   const STAT_COLS = [
     { k: 'name', label: 'Player' }, { k: 'team', label: 'Team' }, { k: 'gp', label: 'GP' },
-    { k: 'v_season', label: 'Season' }, { k: 'v_l20', label: 'L20' }, { k: 'v_l10', label: 'L10' }, { k: 'v_l5', label: 'L5' },
-    { k: 'dl5', label: 'L5 vs L20', trend: true }, { k: 'dl10', label: 'L10 vs L20', trend: true },
+    { k: 'v_l5', label: 'L5' }, { k: 'v_l10', label: 'L10' }, { k: 'v_l20', label: 'L20' }, { k: 'v_season', label: 'Season' },
+    { k: 'flag', label: 'Form (PRA)', trend: true },
   ];
   const cols = () => (state.view === 'all' ? ALL_COLS : STAT_COLS);
 
@@ -169,10 +169,8 @@
     if (k === 'name' || k === 'team') return p[k];
     if (k === 'gp') return p.gp;
     if (k === 'flag') return FLAG_ORDER[flagOf(p)];
-    if (k.startsWith('d_')) return p[k];
+    if (k.includes('@')) { const [s, w] = k.split('@'); return p[w][s]; }
     if (k.startsWith('v_')) return p[k.slice(2)][state.stat];
-    if (k === 'dl5') return p.l5[state.stat] - p.l20[state.stat];
-    if (k === 'dl10') return p.l10[state.stat] - p.l20[state.stat];
     return p[state.win][k];
   }
 
@@ -182,11 +180,21 @@
     if (k === 'team') return el('td', { class: 'team', textContent: p.team });
     if (k === 'gp') return el('td', { textContent: p.gp });
     if (k === 'flag') { const f = flagOf(p); return el('td', {}, [el('span', { class: 'chip ' + (f === 'n/a' ? 'na' : f), textContent: f })]); }
-    if (k.startsWith('d_')) return el('td', {}, [delta(p[k], 'pts', k === 'd_tov')]);
-    if (k === 'dl5' || k === 'dl10') return el('td', {}, [delta(value(p, k), state.stat, state.stat === 'tov')]);
+    if (k.includes('@')) {
+      const [s, wn] = k.split('@'), w = p[wn];
+      return el('td', { textContent: w.n ? fmt(s, w[s]) : '–' });
+    }
     if (k.startsWith('v_')) {
-      const w = p[k.slice(2)];
-      return el('td', { textContent: w.n ? fmt(state.stat, w[state.stat]) : '–' });
+      const wn = k.slice(2), w = p[wn];
+      const td = el('td', { textContent: w.n ? fmt(state.stat, w[state.stat]) : '–' });
+      if (w.n && (wn === 'l5' || wn === 'l10')) {
+        // tint against the L20 average so the trend is visible without +/- numbers
+        const d = w[state.stat] - p.l20[state.stat], eps = state.stat === 'fg' ? 0.005 : 0.05;
+        const inv = state.stat === 'tov';
+        if (Math.abs(d) >= eps) td.className = (d > 0) !== inv ? 'pos' : 'neg';
+        td.title = 'L20 avg: ' + fmt(state.stat, p.l20[state.stat]);
+      }
+      return td;
     }
     const w = p[state.win];
     return el('td', { textContent: w.n ? fmt(k, w[k]) : '–' });
@@ -244,8 +252,8 @@
       'Form flags need at least 10 games on record per player. They appear as more games are loaded.' }));
 
     $('#foot').textContent = state.view === 'all'
-      ? 'Season = this season only. Last 5/10/20 = a player’s most recent games, including the end of last season early in the year. PRA = points + rebounds + assists. FG% is made / attempted over the window. Trend columns compare the recent window to the last-20 average. Click a player for their last 20 games.'
-      : 'Showing ' + STAT_LABEL[state.stat] + '. Season = this season only; L20/L10/L5 = most recent games, including last season early on. Deltas compare L5 and L10 to L20' + (state.stat === 'tov' ? ' (for turnovers, a drop is shown green).' : '.') + ' Click a player for their last 20 games.';
+      ? 'Averages per game over the chosen window. Season = this season only. Last 5/10/20 = a player’s most recent games, including the end of last season early in the year. PRA = points + rebounds + assists. FG% is made / attempted over the window. Form (HOT/COLD) compares PRA L5 to PRA L20. Click a player for their last 20 games.'
+      : 'Showing ' + STAT_LABEL[state.stat] + ' averages per game. L5 and L10 are green when above the player’s L20 average and red when below' + (state.stat === 'tov' ? ' (for turnovers, lower is green)' : '') + '; hover a number to see the L20 average. Season = this season only; L5/L10/L20 include last season early in the year. Click a player for their last 20 games.';
   }
 
   // controls
@@ -269,7 +277,7 @@
       state.view = b.dataset.v; pressed('#view', b);
       $('#win').hidden = state.view === 'stat';
       $('#statwrap').hidden = state.view === 'all';
-      state.sort = state.view === 'all' ? 'pts' : 'v_l10'; state.dir = -1;
+      state.sort = state.view === 'all' ? 'pts' : 'v_l5'; state.dir = -1;
       render();
     };
   });
