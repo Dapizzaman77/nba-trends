@@ -10,7 +10,7 @@ Backfill a date range (also fills in team rows for games whose player rows are a
     python update_data.py --from 2025-10-21 --to 2026-10-21 --sleep 0.3
 
 Rows are de-duplicated on (date, team, player) and (date, team), so re-running is safe.
-Only regular-season games are kept unless you pass --types 2,3 (adds playoffs).
+Regular season (type 2), playoffs (3) and play-in (5) games are kept; All-Star and other non-NBA-team games are not.
 Games from before SEASON_START are pruned to the last --keep-prior games per player / per team,
 because the 20-game trends never need more than that.
 
@@ -35,6 +35,12 @@ SEASON_START = "2026-09-01"  # games before this date count as "last season"
 TEAM_FIX = {"GS": "GSW", "NY": "NYK", "NO": "NOP", "SA": "SAS", "UTAH": "UTA", "WSH": "WAS", "PHO": "PHX"}
 
 TEAM_SUM_KEYS = ["reb", "ast", "stl", "blk", "tov", "fgm", "fga", "tpm", "tpa", "ftm", "fta"]
+
+# Only real NBA teams. This keeps out All-Star game teams (STARS, STRIPES, WORLD) and any other special games.
+VALID_TEAMS = {
+    "ATL", "BOS", "BKN", "CHA", "CHI", "CLE", "DAL", "DEN", "DET", "GSW", "HOU", "IND", "LAC", "LAL", "MEM",
+    "MIA", "MIL", "MIN", "NOP", "NYK", "OKC", "ORL", "PHI", "PHX", "POR", "SAC", "SAS", "TOR", "UTA", "WAS",
+}
 
 
 def norm_team(abbr):
@@ -166,13 +172,21 @@ def main():
     ap.add_argument("--days", type=int, default=3, help="look back this many days (daily mode)")
     ap.add_argument("--from", dest="date_from", help="backfill start date YYYY-MM-DD")
     ap.add_argument("--to", dest="date_to", help="backfill end date YYYY-MM-DD (default today)")
-    ap.add_argument("--types", default="2", help="ESPN season types to keep: 2=regular season, 3=playoffs")
+    ap.add_argument("--types", default="2,3,5",
+                    help="ESPN season types to keep: 2=regular season, 3=playoffs, 5=play-in")
     ap.add_argument("--sleep", type=float, default=0.0, help="pause between requests (be polite on backfills)")
     ap.add_argument("--keep-prior", type=int, default=25, help="games kept per player/team from before the season start")
     args = ap.parse_args()
     allowed = {int(t) for t in args.types.split(",")}
 
     data = load()
+    # Self-clean: drop anything saved earlier for non-NBA teams (e.g. All-Star game teams)
+    n_before = len(data["rows"]) + len(data["teams"])
+    data["rows"] = [r for r in data["rows"] if r["t"] in VALID_TEAMS]
+    data["teams"] = [r for r in data["teams"] if r["t"] in VALID_TEAMS]
+    removed = n_before - len(data["rows"]) - len(data["teams"])
+    if removed:
+        print(f"Removed {removed} rows from non-NBA teams (All-Star etc.).")
     seen = {(r["d"], r["t"], r["p"]) for r in data["rows"]}
     tseen = {(r["d"], r["t"]) for r in data["teams"]}
     added, added_t, failures = 0, 0, 0
@@ -196,6 +210,8 @@ def main():
                 comp = ev["competitions"][0]
                 scores = {norm_team(c["team"]["abbreviation"]): (int(float(c["score"])), c["homeAway"])
                           for c in comp["competitors"]}
+                if not all(t in VALID_TEAMS for t in scores) or len(scores) != 2:
+                    continue  # All-Star / exhibition games
                 if args.sleep:
                     time.sleep(args.sleep)
                 summary = get_json(f"{BASE}/summary?event={ev['id']}")
@@ -222,12 +238,13 @@ def main():
         if args.sleep:
             time.sleep(args.sleep)
 
-    if added or added_t:
+    if added or added_t or removed:
         data["rows"].sort(key=lambda r: r["d"])  # stable: keeps order within a day
         data["teams"].sort(key=lambda r: r["d"])
         data["rows"] = prune_prior(data["rows"], args.keep_prior, "p")
         data["teams"] = prune_prior(data["teams"], args.keep_prior, "t")
-        data["updated"] = datetime.now(ET).strftime("%Y-%m-%d")
+        if added or added_t:
+            data["updated"] = datetime.now(ET).strftime("%Y-%m-%d")
         save(data)
     print(f"Done. {added} new player-games and {added_t} new team-games added. {failures} failures. "
           f"File now has {len(data['rows'])} player rows and {len(data['teams'])} team rows.")

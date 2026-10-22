@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NBA Player Trends</title>
+<title>NBA Team Trends</title>
 <style>
   :root {
     --bg: #f6f7f9; --card: #ffffff; --ink: #14181f; --muted: #5d6675; --line: #e1e5ec;
@@ -23,7 +23,10 @@
          font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
   .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
   h1 { font-size: 22px; margin: 0 0 2px; letter-spacing: -0.01em; }
-  .sub { color: var(--muted); margin: 0 0 16px; }
+  .sub { color: var(--muted); margin: 0 0 6px; }
+  .nav { margin: 0 0 16px; font-size: 13px; }
+  .nav a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .nav a:hover { text-decoration: underline; }
   .controls { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin-bottom: 12px; }
   .controls label { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; }
   input, select { font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line);
@@ -46,11 +49,11 @@
   th .arrow { opacity: .85; margin-left: 3px; }
   th:first-child, td:first-child { text-align: left; position: sticky; left: 0; z-index: 1; background: var(--card); }
   th:first-child { z-index: 3; background: var(--head); }
-  tbody tr.player { cursor: pointer; }
-  tbody tr.player:hover td { background: var(--hover); }
+  tbody tr.team { cursor: pointer; }
+  tbody tr.team:hover td { background: var(--hover); }
   td.name { font-weight: 600; }
-  .team { color: var(--muted); font-size: 12px; }
-  .pos { color: var(--pos); font-weight: 600; } .neg { color: var(--neg); font-weight: 600; } .zero { color: var(--muted); }
+  .abbr { color: var(--muted); font-size: 12px; font-weight: 400; margin-left: 6px; }
+  .pos { color: var(--pos); font-weight: 600; } .neg { color: var(--neg); font-weight: 600; }
   .chip { display: inline-block; min-width: 62px; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 700; }
   .chip.HOT { background: var(--posbg); color: var(--pos); } .chip.COLD { background: var(--negbg); color: var(--neg); }
   .chip.STEADY, .chip.na { color: var(--muted); border: 1px solid var(--line); }
@@ -66,13 +69,12 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>NBA Player Trends</h1>
+  <h1>NBA Team Trends</h1>
   <p class="sub" id="meta">Loading...</p>
+  <p class="nav"><a href="../">&larr; Player trends</a></p>
 
   <div class="controls">
-    <input type="search" id="q" placeholder="Search player" aria-label="Search player">
-    <label>Team <select id="team"><option value="">All</option></select></label>
-    <label>Min GP this season <select id="mingp"><option>0</option><option selected>1</option><option>3</option><option>5</option><option>10</option></select></label>
+    <input type="search" id="q" placeholder="Search team" aria-label="Search team">
     <div class="seg" role="group" aria-label="View" id="view">
       <button data-v="all" aria-pressed="true">All stats</button>
       <button data-v="stat" aria-pressed="false">By stat</button>
@@ -84,7 +86,7 @@
       <button data-w="l20" aria-pressed="false">Last 20</button>
     </div>
     <label id="statwrap" hidden>Stat <select id="stat"></select></label>
-    <label>Hot/Cold at &plusmn; <input type="number" id="thr" min="0" step="0.5" aria-label="Hot or cold threshold in PRA"> PRA</label>
+    <label>Hot/Cold at &plusmn; <input type="number" id="thr" min="0" step="0.5" aria-label="Hot or cold threshold in points of margin"> pts margin</label>
   </div>
 
   <div id="banner"></div>
@@ -92,62 +94,83 @@
   <p class="foot" id="foot"></p>
 </div>
 
-<script src="data/gamelog.js"></script>
+<script src="../data/gamelog.js"></script>
 <script>
 (function () {
   const $ = (s) => document.querySelector(s);
   const LOG = window.NBA_LOG;
-  if (!LOG || !LOG.rows) { $('#meta').textContent = 'Data file not found (data/gamelog.js).'; return; }
+  if (!LOG) { $('#meta').textContent = 'Data file not found (data/gamelog.js).'; return; }
+  let RAW = LOG.teams || [];
 
   const SEASON_START = '2026-09-01'; // games before this date are "last season" (keep in sync with update_data.py)
-  const STATS = [['pts','PTS'],['reb','REB'],['ast','AST'],['tpm','3PM'],['stl','STL'],['blk','BLK'],['tov','TOV'],['pra','PRA']];
-  const STAT_OPTS = STATS.concat([['fg','FG%']]);
-  const STAT_LABEL = Object.fromEntries(STAT_OPTS);
-  const state = { win: 'season', view: 'all', stat: 'pts', sort: 'pts', dir: -1, q: '', team: '', minGp: 1, thr: 3, open: new Set() };
-  try { const t = parseFloat(localStorage.getItem('nba_thr')); if (!isNaN(t)) state.thr = t; } catch (e) {}
+  const NAMES = {
+    ATL: 'Atlanta Hawks', BOS: 'Boston Celtics', BKN: 'Brooklyn Nets', CHA: 'Charlotte Hornets', CHI: 'Chicago Bulls',
+    CLE: 'Cleveland Cavaliers', DAL: 'Dallas Mavericks', DEN: 'Denver Nuggets', DET: 'Detroit Pistons', GSW: 'Golden State Warriors',
+    HOU: 'Houston Rockets', IND: 'Indiana Pacers', LAC: 'LA Clippers', LAL: 'Los Angeles Lakers', MEM: 'Memphis Grizzlies',
+    MIA: 'Miami Heat', MIL: 'Milwaukee Bucks', MIN: 'Minnesota Timberwolves', NOP: 'New Orleans Pelicans', NYK: 'New York Knicks',
+    OKC: 'Oklahoma City Thunder', ORL: 'Orlando Magic', PHI: 'Philadelphia 76ers', PHX: 'Phoenix Suns', POR: 'Portland Trail Blazers',
+    SAC: 'Sacramento Kings', SAS: 'San Antonio Spurs', TOR: 'Toronto Raptors', UTA: 'Utah Jazz', WAS: 'Washington Wizards',
+  };
+  RAW = RAW.filter((r) => NAMES[r.t]); // real NBA teams only (drops All-Star game teams etc.)
+  // k: key, label, kind: 'n' number, 'p' percent, 'm' signed margin; inv: lower is better
+  const STATS = [
+    { k: 'pts', label: 'PTS' }, { k: 'opp', label: 'OPP PTS', inv: true }, { k: 'mar', label: 'MARGIN', kind: 'm' },
+    { k: 'reb', label: 'REB' }, { k: 'ast', label: 'AST' }, { k: 'stl', label: 'STL' }, { k: 'blk', label: 'BLK' },
+    { k: 'tov', label: 'TOV', inv: true }, { k: 'tpm', label: '3PM' },
+    { k: 'fg', label: 'FG%', kind: 'p' }, { k: 'tp', label: '3P%', kind: 'p' }, { k: 'ft', label: 'FT%', kind: 'p' },
+  ];
+  const BYK = Object.fromEntries(STATS.map((s) => [s.k, s]));
+  const state = { win: 'season', view: 'all', stat: 'pts', sort: 'mar', dir: -1, q: '', thr: 3, open: new Set() };
+  try { const t = parseFloat(localStorage.getItem('nba_thr_team')); if (!isNaN(t)) state.thr = t; } catch (e) {}
 
   const sum = (rows, k) => rows.reduce((s, r) => s + r[k], 0);
+  const ratio = (a, b) => (b ? a / b : 0);
   function agg(rows) {
-    const o = { n: rows.length };
-    STATS.forEach(([k]) => { o[k] = rows.length ? sum(rows, k) / rows.length : 0; });
-    const fga = sum(rows, 'fga');
-    o.fg = fga ? sum(rows, 'fgm') / fga : 0;
+    const n = rows.length, o = { n };
+    const avg = (k) => (n ? sum(rows, k) / n : 0);
+    o.pts = avg('pf'); o.opp = avg('pa'); o.mar = o.pts - o.opp;
+    ['reb', 'ast', 'stl', 'blk', 'tov', 'tpm'].forEach((k) => { o[k] = avg(k); });
+    o.fg = ratio(sum(rows, 'fgm'), sum(rows, 'fga'));
+    o.tp = ratio(sum(rows, 'tpm'), sum(rows, 'tpa'));
+    o.ft = ratio(sum(rows, 'ftm'), sum(rows, 'fta'));
+    o.w = rows.filter((r) => r.pf > r.pa).length; o.l = n - o.w;
     return o;
   }
 
   const by = new Map();
-  LOG.rows.forEach((r) => {
-    const row = Object.assign({}, r, { pra: r.pts + r.reb + r.ast });
-    if (!by.has(r.p)) by.set(r.p, []);
-    by.get(r.p).push(row);
-  });
-  const players = [...by].map(([name, rows]) => {
+  RAW.forEach((r) => { if (!by.has(r.t)) by.set(r.t, []); by.get(r.t).push(r); });
+  const teams = [...by].map(([abbr, rows]) => {
     rows.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0));
     const cur = rows.filter((r) => r.d >= SEASON_START);
-    const p = { name, team: rows[rows.length - 1].t, gp: cur.length, total: rows.length, rows,
+    const t = { abbr, name: NAMES[abbr] || abbr, gp: cur.length, total: rows.length, rows,
                 season: agg(cur), l5: agg(rows.slice(-5)), l10: agg(rows.slice(-10)), l20: agg(rows.slice(-20)) };
-    p.d_pts = p.l5.pts - p.l20.pts;
-    p.d_pra = p.l5.pra - p.l20.pra;
-    p.d_pra10 = p.l10.pra - p.l20.pra;
-    return p;
+    return t;
   });
-  const hasHistory = LOG.rows.some((r) => r.d < SEASON_START);
-  const flagOf = (p) => p.total < 10 ? 'n/a' : p.d_pra >= state.thr ? 'HOT' : p.d_pra <= -state.thr ? 'COLD' : 'STEADY';
+  const hasHistory = RAW.some((r) => r.d < SEASON_START);
+  const flagOf = (t) => {
+    if (t.total < 10) return 'n/a';
+    const d = t.l5.mar - t.l20.mar;
+    return d >= state.thr ? 'HOT' : d <= -state.thr ? 'COLD' : 'STEADY';
+  };
   const FLAG_ORDER = { HOT: 3, STEADY: 2, COLD: 1, 'n/a': 0 };
 
+  const fmt = (s, v) => {
+    if (s.kind === 'p') return (v * 100).toFixed(1) + '%';
+    if (s.kind === 'm') return (v > 0 ? '+' : '') + v.toFixed(1);
+    return v.toFixed(1);
+  };
+  const rec = (w) => w.w + '-' + w.l;
+
   const ALL_COLS = [
-    { k: 'name', label: 'Player' }, { k: 'team', label: 'Team' }, { k: 'gp', label: 'GP' },
-    ...STATS.map(([k, l]) => ({ k, label: l })),
-    { k: 'fg', label: 'FG%' },
-    { k: 'pra@l5', label: 'PRA L5', trend: true },
-    { k: 'pra@l10', label: 'PRA L10', trend: true },
-    { k: 'pra@l20', label: 'PRA L20', trend: true },
-    { k: 'flag', label: 'Form', trend: true },
+    { k: 'name', label: 'Team' }, { k: 'gp', label: 'GP' }, { k: 'rec', label: 'W-L' },
+    ...STATS.map((s) => ({ k: s.k, label: s.label })),
+    { k: 'mar@l5', label: 'MARGIN L5', trend: true }, { k: 'mar@l10', label: 'MARGIN L10', trend: true },
+    { k: 'mar@l20', label: 'MARGIN L20', trend: true }, { k: 'flag', label: 'Form', trend: true },
   ];
   const STAT_COLS = [
-    { k: 'name', label: 'Player' }, { k: 'team', label: 'Team' }, { k: 'gp', label: 'GP' },
+    { k: 'name', label: 'Team' }, { k: 'gp', label: 'GP' }, { k: 'rec', label: 'W-L' },
     { k: 'v_l5', label: 'L5' }, { k: 'v_l10', label: 'L10' }, { k: 'v_l20', label: 'L20' }, { k: 'v_season', label: 'Season' },
-    { k: 'flag', label: 'Form (PRA)', trend: true },
+    { k: 'flag', label: 'Form (margin)', trend: true },
   ];
   const cols = () => (state.view === 'all' ? ALL_COLS : STAT_COLS);
 
@@ -157,67 +180,61 @@
     (kids || []).forEach((c) => e.append(c));
     return e;
   }
-  const fmt = (key, v) => (key === 'fg' ? (v * 100).toFixed(1) + '%' : v.toFixed(1));
-  function delta(v, key, inverse) {
-    const shown = key === 'fg' ? v * 100 : v;
-    const r = Math.round(shown * 10) / 10;
-    const good = inverse ? r < 0 : r > 0, bad = inverse ? r > 0 : r < 0;
-    return el('span', { class: good ? 'pos' : bad ? 'neg' : 'zero', textContent: (r > 0 ? '+' : '') + r.toFixed(1) + (key === 'fg' ? '%' : '') });
+
+  function value(t, k) {
+    if (k === 'name') return t.name;
+    if (k === 'gp') return t.gp;
+    if (k === 'rec') { const w = t[state.view === 'stat' ? 'season' : state.win]; return w.n ? w.w / w.n : 0; }
+    if (k === 'flag') return FLAG_ORDER[flagOf(t)];
+    if (k.includes('@')) { const [s, w] = k.split('@'); return t[w][s]; }
+    if (k.startsWith('v_')) return t[k.slice(2)][state.stat];
+    return t[state.win][k];
   }
 
-  function value(p, k) {
-    if (k === 'name' || k === 'team') return p[k];
-    if (k === 'gp') return p.gp;
-    if (k === 'flag') return FLAG_ORDER[flagOf(p)];
-    if (k.includes('@')) { const [s, w] = k.split('@'); return p[w][s]; }
-    if (k.startsWith('v_')) return p[k.slice(2)][state.stat];
-    return p[state.win][k];
-  }
-
-  function cell(p, c) {
+  function cell(t, c) {
     const k = c.k;
-    if (k === 'name') return el('td', { class: 'name', textContent: p.name });
-    if (k === 'team') return el('td', { class: 'team', textContent: p.team });
-    if (k === 'gp') return el('td', { textContent: p.gp });
-    if (k === 'flag') { const f = flagOf(p); return el('td', {}, [el('span', { class: 'chip ' + (f === 'n/a' ? 'na' : f), textContent: f })]); }
+    if (k === 'name') return el('td', { class: 'name' }, [t.name, el('span', { class: 'abbr', textContent: t.abbr })]);
+    if (k === 'gp') return el('td', { textContent: t.gp });
+    if (k === 'rec') { const w = t[state.view === 'stat' ? 'season' : state.win]; return el('td', { textContent: w.n ? rec(w) : '–' }); }
+    if (k === 'flag') { const f = flagOf(t); return el('td', {}, [el('span', { class: 'chip ' + (f === 'n/a' ? 'na' : f), textContent: f })]); }
     if (k.includes('@')) {
-      const [s, wn] = k.split('@'), w = p[wn];
-      return el('td', { textContent: w.n ? fmt(s, w[s]) : '–' });
+      const [s, wn] = k.split('@'), w = t[wn];
+      return el('td', { textContent: w.n ? fmt(BYK[s], w[s]) : '–' });
     }
     if (k.startsWith('v_')) {
-      const wn = k.slice(2), w = p[wn];
-      const td = el('td', { textContent: w.n ? fmt(state.stat, w[state.stat]) : '–' });
+      const wn = k.slice(2), w = t[wn], S = BYK[state.stat];
+      const td = el('td', { textContent: w.n ? fmt(S, w[state.stat]) : '–' });
       if (w.n && (wn === 'l5' || wn === 'l10')) {
         // tint against the L20 average so the trend is visible without +/- numbers
-        const d = w[state.stat] - p.l20[state.stat], eps = state.stat === 'fg' ? 0.005 : 0.05;
-        const inv = state.stat === 'tov';
-        if (Math.abs(d) >= eps) td.className = (d > 0) !== inv ? 'pos' : 'neg';
-        td.title = 'L20 avg: ' + fmt(state.stat, p.l20[state.stat]);
+        const d = w[state.stat] - t.l20[state.stat], eps = S.kind === 'p' ? 0.005 : 0.05;
+        if (Math.abs(d) >= eps) td.className = (d > 0) !== !!S.inv ? 'pos' : 'neg';
+        td.title = 'L20 avg: ' + fmt(S, t.l20[state.stat]);
       }
       return td;
     }
-    const w = p[state.win];
-    return el('td', { textContent: w.n ? fmt(k, w[k]) : '–' });
+    const w = t[state.win];
+    return el('td', { textContent: w.n ? fmt(BYK[k], w[k]) : '–' });
   }
 
-  function detailRow(p, ncols) {
-    const recent = p.rows.slice(-20).reverse();
-    const head = ['Date','Opp','Result','PTS','REB','AST','PRA','3PM','STL','BLK','TOV','FG'];
-    const t = el('table', {}, [
+  function detailRow(t, ncols) {
+    const recent = t.rows.slice(-20).reverse();
+    const head = ['Date', 'Opp', 'Result', 'PTS', 'OPP', 'MARGIN', 'REB', 'AST', 'STL', 'BLK', 'TOV', 'FG', '3P'];
+    const tbl = el('table', {}, [
       el('thead', {}, [el('tr', {}, head.map((h) => el('th', { textContent: h })))]),
       el('tbody', {}, recent.map((r) => el('tr', { class: r.d < SEASON_START ? 'lastseason' : '' }, [
-        r.d, (r.h ? 'vs ' : '@ ') + r.o, r.r, r.pts, r.reb, r.ast, r.pra, r.tpm, r.stl, r.blk, r.tov, r.fgm + '-' + r.fga,
+        r.d, (r.h ? 'vs ' : '@ ') + r.o, r.r, r.pf, r.pa, (r.pf - r.pa > 0 ? '+' : '') + (r.pf - r.pa), r.reb, r.ast, r.stl, r.blk, r.tov,
+        r.fgm + '-' + r.fga, r.tpm + '-' + r.tpa,
       ].map((v) => el('td', { textContent: String(v) }))))),
     ]);
     const td = el('td', { colSpan: ncols }, [
-      el('h3', { textContent: p.name + ' - last ' + recent.length + ' games, newest first (grey rows are from last season)' }), t]);
+      el('h3', { textContent: t.name + ' - last ' + recent.length + ' games, newest first (grey rows are from last season)' }), tbl]);
     return el('tr', { class: 'detail' }, [td]);
   }
 
   function render() {
     const C = cols();
     const q = state.q.toLowerCase();
-    const list = players.filter((p) => p.gp >= state.minGp && (!state.team || p.team === state.team) && (!q || p.name.toLowerCase().includes(q)));
+    const list = teams.filter((t) => !q || t.name.toLowerCase().includes(q) || t.abbr.toLowerCase().includes(q));
     list.sort((a, b) => {
       const x = value(a, state.sort), y = value(b, state.sort);
       const c = typeof x === 'string' ? x.localeCompare(y) : x - y;
@@ -230,43 +247,43 @@
       th.setAttribute('aria-sort', state.sort === c.k ? (state.dir > 0 ? 'ascending' : 'descending') : 'none');
       if (state.sort === c.k) th.append(el('span', { class: 'arrow', textContent: state.dir > 0 ? '▲' : '▼' }));
       th.onclick = () => {
-        if (state.sort === c.k) state.dir *= -1; else { state.sort = c.k; state.dir = (c.k === 'name' || c.k === 'team') ? 1 : -1; }
+        if (state.sort === c.k) state.dir *= -1; else { state.sort = c.k; state.dir = c.k === 'name' ? 1 : -1; }
         render();
       };
       return th;
     })));
 
     const tb = $('#tbl tbody'); tb.replaceChildren();
-    if (!list.length) tb.append(el('tr', {}, [el('td', { colSpan: C.length, class: 'empty', textContent: 'No players match.' })]));
-    list.forEach((p) => {
-      const tr = el('tr', { class: 'player' }, C.map((c) => cell(p, c)));
-      tr.onclick = () => { state.open.has(p.name) ? state.open.delete(p.name) : state.open.add(p.name); render(); };
+    if (!list.length) tb.append(el('tr', {}, [el('td', { colSpan: C.length, class: 'empty', textContent: teams.length ? 'No teams match.' : 'No team data yet.' })]));
+    list.forEach((t) => {
+      const tr = el('tr', { class: 'team' }, C.map((c) => cell(t, c)));
+      tr.onclick = () => { state.open.has(t.abbr) ? state.open.delete(t.abbr) : state.open.add(t.abbr); render(); };
       tb.append(tr);
-      if (state.open.has(p.name)) tb.append(detailRow(p, C.length));
+      if (state.open.has(t.abbr)) tb.append(detailRow(t, C.length));
     });
 
     const banner = $('#banner'); banner.replaceChildren();
-    if (!hasHistory) banner.append(el('div', { class: 'note', textContent:
-      'No last-season games are loaded yet, so Last 5 / 10 / 20 only include this season. Run the "Backfill last season" action once (see README) to fill them in.' }));
-    else if (!players.some((p) => p.total >= 10)) banner.append(el('div', { class: 'note', textContent:
-      'Form flags need at least 10 games on record per player. They appear as more games are loaded.' }));
+    if (!teams.length) banner.append(el('div', { class: 'note', textContent:
+      'No team data loaded yet. It is added by the daily update. To fill in last season too, run the "Backfill last season" action once with the end date set to today (see README).' }));
+    else if (!hasHistory) banner.append(el('div', { class: 'note', textContent:
+      'No last-season team games are loaded yet, so Last 5 / 10 / 20 only include this season. Run the "Backfill last season" action once with the end date set to today (see README).' }));
+    else if (!teams.some((t) => t.total >= 10)) banner.append(el('div', { class: 'note', textContent:
+      'Form flags need at least 10 games on record per team. They appear as more games are loaded.' }));
 
+    const S = BYK[state.stat];
     $('#foot').textContent = state.view === 'all'
-      ? 'Averages per game over the chosen window. Season = this season only. Last 5/10/20 = a player’s most recent games, including the end of last season early in the year. PRA = points + rebounds + assists. FG% is made / attempted over the window. Form (HOT/COLD) compares PRA L5 to PRA L20. Click a player for their last 20 games.'
-      : 'Showing ' + STAT_LABEL[state.stat] + ' averages per game. L5 and L10 are green when above the player’s L20 average and red when below' + (state.stat === 'tov' ? ' (for turnovers, lower is green)' : '') + '; hover a number to see the L20 average. Season = this season only; L5/L10/L20 include last season early in the year. Click a player for their last 20 games.';
+      ? 'Per-game averages over the chosen window. Season = this season only; Last 5/10/20 = a team’s most recent games, including playoff games and, early in the year, the end of last season. MARGIN = points scored minus points allowed. W-L is the record in the chosen window. Form (HOT/COLD) compares average margin over the last 5 games with the last 20. Click a team for its last 20 games.'
+      : 'Showing ' + S.label + (S.kind === 'p' ? ' (made / attempted over the window)' : ' per game') + '. L5 and L10 are green when better than the team’s L20 average and red when worse' + (S.inv ? ' (lower is better for this stat)' : '') + '; hover a number to see the L20 average. Season = this season only. Click a team for its last 20 games.';
   }
 
   // controls
-  [...new Set(players.map((p) => p.team))].sort().forEach((t) => $('#team').append(el('option', { value: t, textContent: t })));
-  STAT_OPTS.forEach(([k, l]) => $('#stat').append(el('option', { value: k, textContent: l })));
+  STATS.forEach((s) => $('#stat').append(el('option', { value: s.k, textContent: s.label })));
   $('#q').oninput = (e) => { state.q = e.target.value; render(); };
-  $('#team').onchange = (e) => { state.team = e.target.value; render(); };
-  $('#mingp').onchange = (e) => { state.minGp = +e.target.value; render(); };
   $('#stat').onchange = (e) => { state.stat = e.target.value; render(); };
   $('#thr').value = state.thr;
   $('#thr').oninput = (e) => {
     const v = parseFloat(e.target.value);
-    if (!isNaN(v) && v >= 0) { state.thr = v; try { localStorage.setItem('nba_thr', String(v)); } catch (err) {} render(); }
+    if (!isNaN(v) && v >= 0) { state.thr = v; try { localStorage.setItem('nba_thr_team', String(v)); } catch (err) {} render(); }
   };
   function pressed(group, btn) { document.querySelectorAll(group + ' button').forEach((x) => x.setAttribute('aria-pressed', String(x === btn))); }
   document.querySelectorAll('#win button').forEach((b) => {
@@ -277,14 +294,13 @@
       state.view = b.dataset.v; pressed('#view', b);
       $('#win').hidden = state.view === 'stat';
       $('#statwrap').hidden = state.view === 'all';
-      state.sort = state.view === 'all' ? 'pts' : 'v_l5'; state.dir = -1;
+      state.sort = state.view === 'all' ? 'mar' : 'v_l5'; state.dir = -1;
       render();
     };
   });
 
-  const active = players.filter((p) => p.gp > 0).length;
-  $('#meta').textContent = 'Data through ' + LOG.updated + ' · ' + active + ' players this season · ' + LOG.rows.length +
-    ' player-games on record' + (hasHistory ? ' (includes last season’s final games)' : '') + ' · updated daily';
+  $('#meta').textContent = 'Data through ' + LOG.updated + ' · ' + teams.length + ' teams · ' + RAW.length +
+    ' team-games on record' + (hasHistory ? ' (includes last season’s final games)' : '') + ' · updated daily';
   render();
 })();
 </script>
